@@ -1,0 +1,20 @@
+import test;
+
+
+struct Holder<T> {
+    item: T&;
+}
+
+
+fn longest<T>(a: T&, b: T&) -> T& {
+    if (a > b) {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+
+fn main() -> int {
+    return f(a<b, c>(d));
+}
