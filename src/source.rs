@@ -1,15 +1,26 @@
+use std::fmt::Debug;
 use std::fs::File;
 use std::io::Read;
 use std::ops::Range;
 pub use std::path::{PathBuf, Path};
+use std::rc::Rc;
+use std::cmp::{min, max};
 
 
+#[derive(Debug)]
 pub struct Source {
     pub path: Option<PathBuf>,
     pub name: String,
     pub text: String,
     pub lines: Vec<Range<usize>>
 }
+
+impl PartialEq<Self> for Source {
+    fn eq(&self, other: &Self) -> bool {
+        return self.name == other.name
+    }
+}
+
 
 impl Source {
     pub fn from_file(path: &Path) -> Option<Source> {
@@ -32,27 +43,40 @@ impl Source {
 
         return Some(Source { path: Some(abs_path), name, text, lines });
     }
-
-    // pub fn from_text(name: &str, text: &str) -> Source {
-    //     return Source { path: None, name: String::from(name), text: String::from(text), lines: vec![0..text.len() as u32] };
-    // }
 }
 
-#[derive(Clone, Copy)]
-pub struct Location<'a> {
-    source: &'a Source,
+#[derive(Clone, Debug)]
+pub struct Location {
+    source: Rc<Source>,
     line: usize,
     offset: usize,
-    length: usize
+    length: usize,
+    multiline: bool
 }
 
 
-impl<'a> Location<'a> {
-    pub fn new(source: &'a Source, line: usize, offset: usize, length: usize) -> Location<'a> {
-        return Location { source, line, offset, length }
+impl Location {
+    pub fn new(source: Rc<Source>, line: usize, offset: usize, length: usize) -> Location {
+        Location { source, line, offset, length, multiline: false }
+    }
+
+    pub fn new_multiline(source: Rc<Source>, line: usize, offset: usize, length: usize) -> Location {
+        Location { source, line, offset, length, multiline: true}
+    }
+
+    pub fn combine(&self, other: &Location) -> Location {
+        if self.source != other.source { panic!("Sources must be the same") }
+
+        return Location {
+            source: Rc::clone(&self.source),
+            line: min(self.line, other.line),
+            offset: if (self.line, self.offset) <= (other.line, other.offset) { self.offset } else { other.offset },
+            length: max(self.offset + self.length, other.offset + self.length) - min(self.offset, other.offset),
+            multiline: self.line != other.line
+        }
     }
 }
 
-pub trait HasLoc<'a> {
-    fn get_loc(&'a self) -> Location<'a>;
+pub trait HasLoc {
+    fn get_loc(&self) -> Location;
 }

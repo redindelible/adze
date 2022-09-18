@@ -10,8 +10,7 @@ use compiler::CompilerState;
 
 fn main() {
     let mut state = CompilerState::new();
-    let mut parser = parser::Parser::new(&mut state);
-    parser.parse_program(PathBuf::from("test.adze"));
+    parser::parse_program(&mut state, PathBuf::from("test.adze"));
 
     println!("Hello, world! {}", state.sources.get(0).unwrap().name);
 }

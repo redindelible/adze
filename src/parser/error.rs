@@ -1,6 +1,7 @@
 use crate::source::{Location, PathBuf};
 
 
-pub enum ParseError<'a> {
-    FileNotFound(PathBuf, Location<'a>)
+pub enum ParseError {
+    FileNotFound(PathBuf, Location),
+    UnexpectedCharacter(char, Location),
 }

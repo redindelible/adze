@@ -1,7 +1,9 @@
+use std::rc::Rc;
 use crate::source::{Source, Location, HasLoc};
-use crate::parser::error;
+use crate::parser::error::ParseError;
 
 
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TokenType {
     Integer,
     Identifier,
@@ -22,39 +24,49 @@ pub enum TokenType {
     LeftAngle, RightAngle,
     LeftParenthesis, RightParenthesis,
     LeftBracket, RightBracket,
+    LeftBrace, RightBrace,
     Plus, Minus,
     Star, Slash, Percent,
     Equal, Tilde,
     Ampersand, VerticalBar,
     Exclamation, Question,
-    Period, Comma, Semicolon, Colon
+    Period, Comma, Semicolon, Colon,
+
+    // Special
+    Error
 }
 
-pub struct Token<'a> {
-    pub loc: Location<'a>,
+#[derive(Debug, Clone)]
+pub struct Token {
+    pub loc: Location,
     pub token_type: TokenType,
     pub text: String,
     pub leading_ws: bool
 }
 
-impl<'a> Token<'a> {
-    pub fn new(text: &str, token_type: TokenType, loc: Location<'a>, leading_ws: bool) -> Token<'a> {
+impl Token {
+    pub fn new(text: &str, token_type: TokenType, loc: Location, leading_ws: bool) -> Token {
         return Token { loc, token_type, text: String::from(text), leading_ws}
     }
-}
 
-
-impl<'a> HasLoc<'a> for Token<'a> {
-    fn get_loc(&self) -> Location<'a> {
-        return self.loc;
+    pub fn loc_range(&self, other: &Token) -> Location {
+        return self.loc.combine(&other.loc);
     }
 }
 
 
-pub fn lex_source(source: &mut Source) -> Option<Vec<Token>> {
+impl HasLoc for Token {
+    fn get_loc(&self) -> Location {
+        return self.loc.clone();
+    }
+}
+
+
+pub fn lex_source(source: Rc<Source>) -> Result<Vec<Token>, Vec<ParseError>> {
     use TokenType::*;
 
     let mut tokens = Vec::new();
+    let mut errors = Vec::new();
 
     let characters: Vec<char> = source.text.chars().collect();
 
@@ -63,7 +75,7 @@ pub fn lex_source(source: &mut Source) -> Option<Vec<Token>> {
     let mut line = 0;
     let mut line_start = 0;
     while index < characters.len() {
-        let chr = characters[index];
+        let mut chr = characters[index];
         if chr == '\n' {
             line_start = index+1;
             line += 1;
@@ -76,8 +88,9 @@ pub fn lex_source(source: &mut Source) -> Option<Vec<Token>> {
             let start = index;
             while index < characters.len() && (chr.is_ascii_alphanumeric() || chr == '_') {
                 index += 1;
+                chr = characters[index];
             }
-            let loc = Location::new(source, line, line_start - start, index - start);
+            let loc = Location::new(Rc::clone(&source), line, start - line_start, index - start);
             let text = &source.text[start..index];
             let token_type = match text {
                 "while"  => While,
@@ -98,13 +111,16 @@ pub fn lex_source(source: &mut Source) -> Option<Vec<Token>> {
             let start = index;
             while index < characters.len() && chr.is_numeric() {
                 index += 1;
+                chr = characters[index];
             }
-            let loc = Location::new(source, line, line_start - start, index - start);
+            let loc = Location::new(Rc::clone(&source), line, start - line_start, index - start);
             let text = &source.text[start..index];
             let token = Token::new(text, Integer, loc, prev_is_ws);
             tokens.push(token);
             prev_is_ws = false;
         } else {
+            let loc = Location::new(Rc::clone(&source), line, index - line_start, 1);
+            let text = &source.text[index..index+1];
             let token_type = match chr {
                 '<' => LeftAngle,
                 '>' => RightAngle,
@@ -112,6 +128,8 @@ pub fn lex_source(source: &mut Source) -> Option<Vec<Token>> {
                 ')' => RightParenthesis,
                 '[' => LeftBracket,
                 ']' => RightBracket,
+                '{' => LeftBrace,
+                '}' => RightBrace,
                 '+' => Plus,
                 '-' => Minus,
                 '*' => Star,
@@ -127,13 +145,16 @@ pub fn lex_source(source: &mut Source) -> Option<Vec<Token>> {
                 ',' => Comma,
                 ';' => Semicolon,
                 ':' => Colon,
-                _ => {
-                    panic!("unexpected character");
+                c => {
+                    errors.push(ParseError::UnexpectedCharacter(c, loc.clone()));
+                    Error
                 }
             };
+            let token = Token::new(text, token_type, loc.clone(), prev_is_ws);
+            tokens.push(token);
             index += 1;
             prev_is_ws = false;
         }
     }
-    return Some(tokens);
+    return if errors.is_empty() { Ok(tokens) } else { Err(errors) }
 }

@@ -1,7 +1,8 @@
+use std::rc::Rc;
 use crate::source::Source;
 
 pub struct CompilerState {
-    pub sources: Vec<Source>
+    pub sources: Vec<Rc<Source>>
 }
 
 impl CompilerState {

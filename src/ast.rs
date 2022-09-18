@@ -1,30 +1,80 @@
 use crate::source::{Location, HasLoc};
 
 
-pub struct File<'a> {
-    top_levels: Vec<TopLevelNode<'a>>
+pub struct File {
+    pub top_levels: Vec<Box<TopLevelNode>>
 }
 
-impl<'a> File<'a> {
-    pub fn new() -> File<'a> {
-        File { top_levels: Vec::new() }
+impl File {
+    pub fn new(top_levels: Vec<Box<TopLevelNode>>) -> File {
+        File { top_levels }
     }
 }
 
 
-pub enum TopLevelNode<'a> {
-    Import(ImportNode<'a>)
+pub enum TopLevelNode {
+    Import(ImportNode),
+    Struct(StructNode)
 }
 
-impl<'a> HasLoc<'a> for TopLevelNode<'a> {
-    fn get_loc(&'a self) -> Location<'a> {
+pub struct ImportNode {
+    pub loc: Location,
+}
+
+pub struct StructNode {
+    pub loc: Location,
+    pub name: String,
+    pub generic_parameters: Vec<Box<GenericParameter>>,
+    pub superstruct: Option<Box<QualifiedNameNode>>,
+    pub interfaces: Vec<Box<QualifiedNameNode>>
+}
+
+pub struct GenericParameter {
+    pub loc: Location,
+    pub name: String,
+    pub bound: Option<Box<TypeNode>>
+}
+
+impl HasLoc for TopLevelNode {
+    fn get_loc(& self) -> Location {
         match self {
-            TopLevelNode::Import(n) => n.loc
+            TopLevelNode::Import(n) => n.loc.clone(),
+            TopLevelNode::Struct(n) => n.loc.clone(),
         }
     }
 }
 
 
-pub struct ImportNode<'a> {
-    loc: Location<'a>
+pub enum QualifiedNameNode {
+    Name(NameNode),
+    Namespace(NamespaceNode)
+}
+
+pub struct NameNode {
+    pub loc: Location,
+    pub name: String,
+}
+
+pub struct NamespaceNode {
+    pub loc: Location,
+    pub source: Box<QualifiedNameNode>,
+    pub attr: String,
+}
+
+
+pub enum TypeNode {
+    Name(NameTypeNode),
+    Function(FunctionTypeNode),
+}
+
+pub struct NameTypeNode {
+    pub loc: Location,
+    pub name: Box<QualifiedNameNode>,
+    pub generic_arguments: Option<Vec<Box<TypeNode>>>
+}
+
+pub struct FunctionTypeNode {
+    pub loc: Location,
+    pub arguments: Vec<Box<TypeNode>>,
+    pub ret: Box<TypeNode>
 }
