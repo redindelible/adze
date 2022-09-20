@@ -4,15 +4,16 @@ use std::rc::Rc;
 use crate::compiler::CompilerState;
 use crate::source::{Source, PathBuf};
 use crate::parser::error::ParseError;
+use crate::error::ErrorSet;
 use crate::ast;
 use crate::parser::lexer;
 use crate::parser::lexer::{Token, TokenType};
 
 
-pub fn parse_program(state: &mut CompilerState, start: PathBuf) -> Result<(), Vec<ParseError>> {
+pub fn parse_program(state: &mut CompilerState, start: PathBuf) -> Result<(), ErrorSet<ParseError>> {
     let mut to_visit: LinkedList<PathBuf> = LinkedList::from([start]);
 
-    let mut errors: Vec<ParseError> = Vec::new();
+    let mut errors: ErrorSet<ParseError> = ErrorSet::new();
 
     while !to_visit.is_empty() {
         let next = to_visit.pop_front().unwrap();
@@ -36,7 +37,7 @@ pub fn parse_program(state: &mut CompilerState, start: PathBuf) -> Result<(), Ve
 
         let mut parser = Parser::new(tokens);
         parser.parse();
-        errors = parser.errors;
+        errors.append(&mut parser.errors);
     }
 
     if !errors.is_empty() {
@@ -72,11 +73,11 @@ impl Parser {
     }
 
     fn expect(&self, expected: TokenType) -> bool {
-        return self.tokens[self.curr_index].token_type == expected;
+        return self.curr().token_type == expected;
     }
 
     fn advance(&mut self) -> Token {
-        let tok = &self.tokens[self.curr_index];
+        let tok = &self.curr();
         self.curr_index += 1;
         return tok.clone();
     }
@@ -93,6 +94,7 @@ impl Parser {
         return result;
     }
 
+    //noinspection RsBorrowChecker
     fn synchronize<T>(&mut self)  -> ParseResult<T> {
         while !self.is_done() {
             for (can_handle, flag) in &self.handlers {
@@ -120,7 +122,9 @@ impl Parser {
         let mut top_levels = Vec::new();
         while !self.is_done() {
             self.catch(&[TokenType::Struct], |s| {
-                s.parse_top_level()
+                let top_level = s.parse_top_level()?;
+                top_levels.push(top_level);
+                Ok(())
             })?;
         }
         return Ok(ast::File { top_levels });
