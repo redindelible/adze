@@ -13,9 +13,7 @@ fn main() {
     match parser::parse_program(&mut state, PathBuf::from("test.adze")) {
         Ok(a) => a,
         Err(errors) => {
-            for error in &errors {
-
-            }
+            print!("{}", errors);
         }
     }
 

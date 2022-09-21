@@ -1,4 +1,6 @@
+use std::fmt::{Display, Formatter};
 use std::rc::Rc;
+use crate::error::ErrorSet;
 use crate::source::{Source, Location, HasLoc};
 use crate::parser::error::ParseError;
 
@@ -33,7 +35,53 @@ pub enum TokenType {
     Period, Comma, Semicolon, Colon,
 
     // Special
-    Error
+    Error, EOF
+}
+
+impl Display for TokenType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        use TokenType::*;
+
+        write!(f, "{}", match self {
+            Integer => "an integer literal",
+            Identifier => "an identifier",
+            String => "a string literal",
+            Return => "'return'",
+            If => "'if'",
+            For => "'for'",
+            Is => "'is'",
+            While => "'while'",
+            Struct => "'struct'",
+            Import => "'import'",
+            Fn => "'fn'",
+            Trait => "'trait'",
+            LeftAngle => "'<'",
+            RightAngle => "'>'",
+            LeftParenthesis => "'('",
+            RightParenthesis => "')'",
+            LeftBracket => "'['",
+            RightBracket => "']'",
+            LeftBrace => "'{'",
+            RightBrace => "'}'",
+            Plus => "'+'",
+            Minus => "'-'",
+            Star => "'*'",
+            Slash => "'/'",
+            Percent => "'%'",
+            Equal => "'='",
+            Tilde => "'~'",
+            Ampersand => "'&'",
+            VerticalBar => "'|'",
+            Exclamation => "'!'",
+            Question => "'?'",
+            Period => "'.'",
+            Comma => "','",
+            Semicolon => "';'",
+            Colon => "':'",
+            Error => "<error>",
+            EOF => "<eof>"
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -54,19 +102,18 @@ impl Token {
     }
 }
 
-
 impl HasLoc for Token {
-    fn get_loc(&self) -> Location {
-        return self.loc.clone();
+    fn get_loc(&self) -> &Location {
+        return &self.loc;
     }
 }
 
 
-pub fn lex_source(source: Rc<Source>) -> Result<Vec<Token>, Vec<ParseError>> {
+pub fn lex_source(source: Rc<Source>) -> Result<Vec<Token>, ErrorSet<ParseError>> {
     use TokenType::*;
 
     let mut tokens = Vec::new();
-    let mut errors = Vec::new();
+    let mut errors = ErrorSet::new();
 
     let characters: Vec<char> = source.text.chars().collect();
 
@@ -146,7 +193,7 @@ pub fn lex_source(source: Rc<Source>) -> Result<Vec<Token>, Vec<ParseError>> {
                 ';' => Semicolon,
                 ':' => Colon,
                 c => {
-                    errors.push(ParseError::UnexpectedCharacter(c, loc.clone()));
+                    errors.add_error(ParseError::UnexpectedCharacter(c, loc.clone()));
                     Error
                 }
             };

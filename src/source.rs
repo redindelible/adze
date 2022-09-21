@@ -1,3 +1,5 @@
+extern crate dunce;
+
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::Read;
@@ -24,10 +26,10 @@ impl PartialEq<Self> for Source {
 
 impl Source {
     pub fn from_file(path: &Path) -> Option<Source> {
-        let abs_path = path.canonicalize().ok()?;
+        let abs_path = dunce::canonicalize(path).ok()?;
 
         let mut file = File::open(&abs_path).ok()?;
-        let name = abs_path.to_string_lossy().into_owned();
+        let name = abs_path.display().to_string();
         let mut text = String::new();
         file.read_to_string(&mut text).ok()?;
 
@@ -43,15 +45,20 @@ impl Source {
 
         return Some(Source { path: Some(abs_path), name, text, lines });
     }
+
+    pub fn get_line(&self, index: usize) -> String {
+        self.text[self.lines[index].clone()].to_owned()
+    }
 }
+
 
 #[derive(Clone, Debug)]
 pub struct Location {
-    source: Rc<Source>,
-    line: usize,
-    offset: usize,
-    length: usize,
-    multiline: bool
+    pub source: Rc<Source>,
+    pub line: usize,
+    pub offset: usize,
+    pub length: usize,
+    pub multiline: bool
 }
 
 
@@ -62,6 +69,10 @@ impl Location {
 
     pub fn new_multiline(source: Rc<Source>, line: usize, offset: usize, length: usize) -> Location {
         Location { source, line, offset, length, multiline: true}
+    }
+
+    pub fn new_eof(source: Rc<Source>) -> Location {
+        Location { line: source.lines.len()-1, offset: source.lines.last().unwrap().end, source, length: 1, multiline: false }
     }
 
     pub fn combine(&self, other: &Location) -> Location {
@@ -78,5 +89,5 @@ impl Location {
 }
 
 pub trait HasLoc {
-    fn get_loc(&self) -> Location;
+    fn get_loc(&self) -> &Location;
 }

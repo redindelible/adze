@@ -26,7 +26,8 @@ pub struct StructNode {
     pub name: String,
     pub generic_parameters: Vec<Box<GenericParameter>>,
     pub superstruct: Option<Box<QualifiedNameNode>>,
-    pub interfaces: Vec<Box<QualifiedNameNode>>
+    pub interfaces: Vec<Box<QualifiedNameNode>>,
+    pub fields: Vec<Box<StructField>>
 }
 
 pub struct GenericParameter {
@@ -35,11 +36,17 @@ pub struct GenericParameter {
     pub bound: Option<Box<TypeNode>>
 }
 
+pub struct StructField {
+    pub loc: Location,
+    pub name: String,
+    pub typ: Box<TypeNode>
+}
+
 impl HasLoc for TopLevelNode {
-    fn get_loc(& self) -> Location {
+    fn get_loc(& self) -> &Location {
         match self {
-            TopLevelNode::Import(n) => n.loc.clone(),
-            TopLevelNode::Struct(n) => n.loc.clone(),
+            TopLevelNode::Import(n) => &n.loc,
+            TopLevelNode::Struct(n) => &n.loc,
         }
     }
 }
@@ -61,10 +68,20 @@ pub struct NamespaceNode {
     pub attr: String,
 }
 
+impl HasLoc for QualifiedNameNode {
+    fn get_loc(&self) -> &Location {
+        match self {
+            QualifiedNameNode::Name(node) => &node.loc,
+            QualifiedNameNode::Namespace(node) => &node.loc
+        }
+    }
+}
+
 
 pub enum TypeNode {
     Name(NameTypeNode),
     Function(FunctionTypeNode),
+    Reference(ReferenceTypeNode)
 }
 
 pub struct NameTypeNode {
@@ -77,4 +94,20 @@ pub struct FunctionTypeNode {
     pub loc: Location,
     pub arguments: Vec<Box<TypeNode>>,
     pub ret: Box<TypeNode>
+}
+
+pub struct ReferenceTypeNode {
+    pub loc: Location,
+    pub typ: Box<TypeNode>
+}
+
+
+impl HasLoc for TypeNode {
+    fn get_loc(&self) -> &Location {
+        match self {
+            TypeNode::Name(n) => &n.loc,
+            TypeNode::Function(n) => &n.loc,
+            TypeNode::Reference(n) => &n.loc
+        }
+    }
 }
