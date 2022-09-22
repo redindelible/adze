@@ -9,9 +9,11 @@ use crate::ast;
 use crate::parser::lexer::{Token, TokenType, lex_source};
 
 
-pub fn parse_program(state: &mut CompilerState, start: PathBuf) -> Result<(), ErrorSet<ParseError>> {
+pub fn parse_program(state: &mut CompilerState, start: PathBuf) -> Result<ast::Program, ErrorSet<ParseError>> {
+    // TODO better location handling for missing file
     let mut to_visit: LinkedList<PathBuf> = LinkedList::from([start]);
 
+    let mut program = ast::Program { files: Vec::new() };
     let mut errors: ErrorSet<ParseError> = ErrorSet::new();
 
     while !to_visit.is_empty() {
@@ -22,7 +24,9 @@ pub fn parse_program(state: &mut CompilerState, start: PathBuf) -> Result<(), Er
 
         state.sources.push(match Source::from_file(next.as_path()) {
             Some(s) => Rc::from(s),
-            None => continue
+            None => {
+                continue;
+            }
         });
         let source = state.sources.last().unwrap();
 
@@ -34,15 +38,16 @@ pub fn parse_program(state: &mut CompilerState, start: PathBuf) -> Result<(), Er
             }
         };
 
-        let mut parser = Parser::new(Rc::clone(source), tokens);
-        parser.parse();
-        errors.add_errors(&mut parser.errors);
+        match Parser::parse(Rc::clone(source), tokens) {
+            Ok(f) => program.files.push(f),
+            Err(mut e) => errors.add_errors(&mut e)
+        }
     }
 
     if !errors.is_empty() {
         Err(errors)
     } else {
-        Ok(())
+        Ok(program)
     }
 }
 
@@ -145,23 +150,27 @@ impl Parser {
         }
     }
 
-    fn consume_error(&mut self, expected: TokenType, error_msg: String) -> ParseResult<Token> {
+    fn consume_error(&mut self, expected: TokenType, error_msg: &str) -> ParseResult<Token> {
         return if self.expect(expected) {
             Ok(self.advance())
         } else {
-            self.errors.add_error(ParseError::WithMessage(error_msg, self.curr().loc));
+            self.errors.add_error(ParseError::WithMessage(String::from(error_msg), self.curr().loc));
             self.synchronize()
         }
     }
 
-    fn parse(&mut self) -> Option<ast::File> {
-        return  self.parse_file().ok();
+    fn parse(source: Rc<Source>, tokens: Vec<Token>) -> Result<ast::File, ErrorSet<ParseError>> {
+        let mut parser = Parser { errors: ErrorSet::new(), handlers: vec![(Vec::new(), 0)], tokens, source, curr_index: 0 };
+        match parser.parse_file() {
+            Ok(f) => Ok(f),
+            Err(_) => Err(parser.errors)
+        }
     }
 
     fn parse_file(&mut self) -> ParseResult<ast::File> {
         let mut top_levels = Vec::new();
         while !self.is_done() {
-            self.catch(&[TokenType::Struct], |s| {
+            self.catch(&[TokenType::Struct, TokenType::Fn], |s| {
                 let top_level = s.parse_top_level()?;
                 top_levels.push(top_level);
                 Ok(())
@@ -173,15 +182,17 @@ impl Parser {
     fn parse_top_level(&mut self) -> ParseResult<Box<ast::TopLevelNode>> {
         if self.expect(TokenType::Struct) {
             Ok(Box::from(ast::TopLevelNode::Struct(self.parse_struct()?)))
+        } else if self.expect(TokenType::Fn) {
+            Ok(Box::from(ast::TopLevelNode::Function(self.parse_function()?)))
         } else {
             self.errors.add_error(ParseError::WithMessage(String::from("Expected the start of a struct, function, or import."), self.curr().loc));
             self.synchronize()
         }
     }
 
-    fn parse_struct(&mut self) -> ParseResult<ast::StructNode> {
+    fn parse_struct(&mut self) -> ParseResult<ast::StructData> {
         let start = self.curr();
-        self.consume(TokenType::Struct)?;
+        self.consume_error(TokenType::Struct, "Struct definitions must begin with 'struct'")?;
         let name = self.consume(TokenType::Identifier)?;
 
         let mut generic_parameters = Vec::new();
@@ -215,7 +226,7 @@ impl Parser {
 
         let loc = self.curr().loc_range(&start);
 
-        Ok(ast::StructNode { loc, name: String::from(&name.text), generic_parameters, superstruct, interfaces, fields})
+        Ok(ast::StructData { loc, name: String::from(&name.text), generic_parameters, superstruct, interfaces, fields})
     }
 
     fn parse_generic_parameter(&mut self) -> ParseResult<Box<ast::GenericParameter>> {
@@ -235,14 +246,139 @@ impl Parser {
         }))
     }
 
+    fn parse_function(&mut self) -> ParseResult<ast::FunctionData> {
+        let start = self.consume(TokenType::Fn)?;
+        let name = self.consume(TokenType::Identifier)?;
+
+        let mut generic_parameters = Vec::new();
+
+        if self.expect(TokenType::LeftAngle) {
+            self.consume(TokenType::LeftAngle)?;
+            while !self.expect(TokenType::RightAngle) {
+                generic_parameters.push(self.parse_generic_parameter()?);
+                if !self.expect(TokenType::Comma) {
+                    break;
+                } else {
+                    self.consume(TokenType::Comma)?;
+                }
+            }
+            self.consume(TokenType::RightAngle)?;
+        }
+
+        let mut parameters = Vec::new();
+        self.consume(TokenType::LeftParenthesis)?;
+        while !self.expect(TokenType::RightParenthesis) {
+            parameters.push(self.parse_function_parameter()?);
+            if !self.expect(TokenType::Comma) {
+                break;
+            } else {
+                self.consume(TokenType::Comma)?;
+            }
+        }
+        self.consume(TokenType::RightParenthesis)?;
+
+        self.consume_symbol(TokenType::Minus, TokenType::RightAngle, "'->'")?;
+        let ret = self.parse_type()?;
+
+        let body = self.parse_block()?;
+
+        Ok(ast::FunctionData {
+            loc: start.get_loc().combine(&body.loc),
+            name: name.text,
+            generic_parameters,
+            parameters,
+            ret,
+            body
+        })
+    }
+
+    fn parse_function_parameter(&mut self) -> ParseResult<Box<ast::FunctionParameter>> {
+        let name = self.consume(TokenType::Identifier)?;
+        self.consume(TokenType::Colon)?;
+        let typ = self.parse_type()?;
+        return Ok(Box::from(ast::FunctionParameter { loc: name.get_loc().combine(typ.get_loc()), name: name.text, typ}))
+    }
+
+    fn parse_stmt(&mut self) -> ParseResult<Box<ast::StmtNode>> {
+        if self.expect(TokenType::Return) {
+            Ok(Box::from(ast::StmtNode::Return(self.parse_return()?)))
+        } else {
+            Ok(Box::from(ast::StmtNode::Expr(self.parse_expr_stmt()?)))
+        }
+    }
+
+    fn parse_return(&mut self) -> ParseResult<ast::StmtReturnData> {
+        let start = self.consume(TokenType::Return)?;
+        let expr = self.parse_expr()?;
+        let end = self.consume(TokenType::Semicolon)?;
+        Ok(ast::StmtReturnData { loc: start.get_loc().combine(end.get_loc()), expr })
+    }
+
+    fn parse_expr_stmt(&mut self) -> ParseResult<ast::StmtExprData> {
+        let expr = self.parse_expr()?;
+        let end = self.consume(TokenType::Semicolon)?;
+        Ok(ast::StmtExprData { loc: expr.get_loc().combine(end.get_loc()), expr })
+    }
+
+    fn parse_expr(&mut self) -> ParseResult<Box<ast::ExprNode>> {
+        self.parse_expr_block()
+    }
+
+    fn parse_expr_block(&mut self) -> ParseResult<Box<ast::ExprNode>> {
+        if self.expect(TokenType::LeftBrace) {
+            Ok(Box::from(ast::ExprNode::Block(self.parse_block()?)))
+        } else {
+            self.parse_expr_terminal()
+        }
+    }
+
+    fn parse_block(&mut self) -> ParseResult<ast::BlockData> {
+        let start = self.consume(TokenType::LeftBrace)?;
+        let mut stmts = Vec::new();
+        while !self.expect(TokenType::RightBrace) {
+            stmts.push(self.parse_stmt()?);
+        }
+        let end = self.consume(TokenType::RightBrace)?;
+        Ok(ast::BlockData { loc: start.get_loc().combine(end.get_loc()), stmts })
+    }
+
+    fn parse_expr_terminal(&mut self) -> ParseResult<Box<ast::ExprNode>> {
+        if self.expect(TokenType::Integer) {
+            Ok(Box::from(ast::ExprNode::Integer(self.parse_integer()?)))
+        } else if self.expect(TokenType::LeftParenthesis) {
+            self.consume(TokenType::LeftParenthesis)?;
+            let expr = self.parse_expr()?;
+            self.consume(TokenType::RightParenthesis)?;
+            Ok(expr)
+        } else {
+            self.errors.add_error(ParseError::WithMessage(String::from("Expected an expression."), self.curr().loc));
+            self.synchronize()
+        }
+    }
+
+    fn parse_integer(&mut self) -> ParseResult<ast::IntegerData> {
+        let num_str = self.consume(TokenType::Integer)?;
+        let num = match num_str.text.parse::<u64>() {
+            Ok(n) => n,
+            Err(_) => {
+                self.errors.add_error(ParseError::CouldNotParseLiteral(TokenType::Integer, num_str.get_loc().clone()));
+                self.synchronize()?
+            }
+        };
+        Ok(ast::IntegerData {
+            loc: num_str.get_loc().clone(),
+            integer: num
+        })
+    }
+
     fn parse_qual_name(&mut self) -> ParseResult<Box<ast::QualifiedNameNode>> {
         let name = self.consume(TokenType::Identifier)?;
-        let mut left = Box::from(ast::QualifiedNameNode::Name(ast::NameNode { loc: name.get_loc().clone(), name: name.text }));
+        let mut left = Box::from(ast::QualifiedNameNode::Name(ast::QualNameData { loc: name.get_loc().clone(), name: name.text }));
         loop {
             if self.expect_symbol(TokenType::Colon, TokenType::Colon) {
                 self.advance(); self.advance();
                 let attr_name = self.consume(TokenType::Identifier)?;
-                left = Box::from(ast::QualifiedNameNode::Namespace(ast::NamespaceNode {
+                left = Box::from(ast::QualifiedNameNode::Namespace(ast::QualNamespaceData {
                     loc: left.get_loc().combine(attr_name.get_loc()),
                     source: left,
                     attr: attr_name.text
@@ -251,14 +387,14 @@ impl Parser {
                 break;
             }
         }
-        return Ok(left);
+        Ok(left)
     }
 
     fn parse_type(&mut self) -> ParseResult<Box<ast::TypeNode>> {
         let typ = self.parse_type_terminal()?;
         if self.expect(TokenType::Ampersand) {
             let tok = self.consume(TokenType::Ampersand)?;
-            Ok(Box::from(ast::TypeNode::Reference(ast::ReferenceTypeNode {
+            Ok(Box::from(ast::TypeNode::Reference(ast::TypeReferenceData {
                 loc: typ.get_loc().combine(tok.get_loc()),
                 typ
             })))
@@ -275,16 +411,16 @@ impl Parser {
         }
     }
 
-    fn parse_name_type(&mut self) -> ParseResult<ast::NameTypeNode> {
+    fn parse_name_type(&mut self) -> ParseResult<ast::TypeNameData> {
         let name = self.parse_qual_name()?;
-        Ok(ast::NameTypeNode {
+        Ok(ast::TypeNameData {
             loc: name.get_loc().clone(),
             name,
             generic_arguments: None
         })
     }
 
-    fn parse_function_type(&mut self) -> ParseResult<ast::FunctionTypeNode> {
+    fn parse_function_type(&mut self) -> ParseResult<ast::TypeFunctionData> {
         let mut inputs = Vec::new();
         let start = self.consume(TokenType::LeftParenthesis)?;
         while !self.expect(TokenType::RightParenthesis) {
@@ -301,7 +437,7 @@ impl Parser {
 
         let output = self.parse_type()?;
 
-        return Ok(ast::FunctionTypeNode {
+        return Ok(ast::TypeFunctionData {
             loc : start.get_loc().combine(output.get_loc()),
             arguments: inputs,
             ret: output

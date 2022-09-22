@@ -10,12 +10,12 @@ use compiler::CompilerState;
 
 fn main() {
     let mut state = CompilerState::new();
-    match parser::parse_program(&mut state, PathBuf::from("test.adze")) {
+    let a = match parser::parse_program(&mut state, PathBuf::from("test.adze")) {
         Ok(a) => a,
         Err(errors) => {
-            print!("{}", errors);
+            print!("{}", errors); return;
         }
-    }
+    };
 
     println!("Hello, world! {}", state.sources.get(0).unwrap().name);
 }

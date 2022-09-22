@@ -51,10 +51,6 @@ impl<E> ErrorSet<E> where E: CompilerError {
         return self.errors.is_empty();
     }
 
-    pub fn count(&self) -> usize {
-        return self.errors.len();
-    }
-
     pub fn add_errors(&mut self, errors: &mut ErrorSet<E>) {
         self.errors.append(&mut errors.errors);
     }

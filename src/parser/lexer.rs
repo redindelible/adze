@@ -5,7 +5,7 @@ use crate::source::{Source, Location, HasLoc};
 use crate::parser::error::ParseError;
 
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(PartialEq, Copy, Clone)]
 pub enum TokenType {
     Integer,
     Identifier,
@@ -84,7 +84,7 @@ impl Display for TokenType {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Token {
     pub loc: Location,
     pub token_type: TokenType,
